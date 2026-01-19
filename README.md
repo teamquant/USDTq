@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="USDTq Logo" width="200">
+  <img src="assets/teamquant logo 500x500.png" alt="USDTq Logo" width="200">
 </p>
 # USDTq - TeamQuant Stablecoin
 
