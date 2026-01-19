@@ -617,7 +617,7 @@ RoleRevoked(bytes32 indexed role, address indexed account, address indexed sende
 
 - 🌐 Website: https://teamquant.space
 - 📧 Email: support@teamquant.space
-- 🐦 Twitter: @TeamQuantSpace (upcoming)
+- 🐦 Twitter: @0teamquant0
 - 💬 Telegram: t.me/teamquant (upcoming)
 - 📊 BscScan: 0xD5Eb307D86EBAc71D743023A622982fF7acA62aE
 
