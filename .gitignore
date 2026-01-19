@@ -1,0 +1,27 @@
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Hardhat
+artifacts/
+cache/
+coverage/
+coverage.json
+typechain-types/
+gas-report.txt
+
+# Environment
+.env
+
+# Misc
+.DS_Store
+Thumbs.db
+
+# IDE/Editor
+.claude/
+.vscode/
+.idea/
+
+# Gas Reporter
+gasReporterOutput.json

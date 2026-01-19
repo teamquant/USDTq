@@ -1,0 +1,217 @@
+name: Solidity CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: "18"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Solhint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile contracts
+        run: npm run build
+
+      - name: Check contract sizes
+        run: npm run size
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-artifacts
+          path: artifacts/
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+        env:
+          REPORT_GAS: true
+
+      - name: Upload gas report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-report
+          path: gas-report.txt
+          if-no-files-found: ignore
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+      - name: Check coverage thresholds
+        run: |
+          # Extract coverage percentages from coverage summary
+          LINES=$(cat coverage/coverage-summary.json | jq -r '.total.lines.pct')
+          STATEMENTS=$(cat coverage/coverage-summary.json | jq -r '.total.statements.pct')
+          FUNCTIONS=$(cat coverage/coverage-summary.json | jq -r '.total.functions.pct')
+          BRANCHES=$(cat coverage/coverage-summary.json | jq -r '.total.branches.pct')
+
+          echo "Coverage Results:"
+          echo "  Lines: $LINES%"
+          echo "  Statements: $STATEMENTS%"
+          echo "  Functions: $FUNCTIONS%"
+          echo "  Branches: $BRANCHES%"
+
+          # Check thresholds (using bc for floating point comparison)
+          LINES_OK=$(echo "$LINES >= 90" | bc -l)
+          STATEMENTS_OK=$(echo "$STATEMENTS >= 90" | bc -l)
+          FUNCTIONS_OK=$(echo "$FUNCTIONS >= 90" | bc -l)
+          BRANCHES_OK=$(echo "$BRANCHES >= 85" | bc -l)
+
+          if [ "$LINES_OK" -eq 0 ] || [ "$STATEMENTS_OK" -eq 0 ] || [ "$FUNCTIONS_OK" -eq 0 ] || [ "$BRANCHES_OK" -eq 0 ]; then
+            echo "Coverage thresholds not met!"
+            echo "Required: Lines >= 90%, Statements >= 90%, Functions >= 90%, Branches >= 85%"
+            exit 1
+          fi
+
+          echo "All coverage thresholds met!"
+
+  security:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Slither
+        run: pip3 install slither-analyzer
+
+      - name: Run Slither
+        run: slither contracts/USDTq.sol --exclude-dependencies --json slither-report.json || true
+
+      - name: Upload Slither report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slither-report
+          path: slither-report.json
+          if-no-files-found: ignore
+
+      - name: Check for high severity issues
+        run: |
+          if [ -f slither-report.json ]; then
+            HIGH_COUNT=$(cat slither-report.json | jq '[.results.detectors[] | select(.impact == "High")] | length')
+            CRITICAL_COUNT=$(cat slither-report.json | jq '[.results.detectors[] | select(.impact == "Critical")] | length')
+
+            echo "High severity issues: $HIGH_COUNT"
+            echo "Critical severity issues: $CRITICAL_COUNT"
+
+            if [ "$HIGH_COUNT" -gt 0 ] || [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo "Security issues found!"
+              cat slither-report.json | jq '.results.detectors[] | select(.impact == "High" or .impact == "Critical")'
+              exit 1
+            fi
+          fi
+          echo "No high/critical security issues found."
+
+  all-checks-pass:
+    name: All Checks Pass
+    runs-on: ubuntu-latest
+    needs: [lint, build, test, coverage, security]
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.coverage.result }}" != "success" ] || \
+             [ "${{ needs.security.result }}" != "success" ]; then
+            echo "One or more checks failed"
+            exit 1
+          fi
+          echo "All checks passed!"
